@@ -7,9 +7,7 @@ import {
   Tag,
   ChevronDown,
   ChevronUp,
-  Clock,
   AlertTriangle,
-  Pencil,
   X,
   Save,
 } from "lucide-react";
@@ -131,7 +129,14 @@ export default function TaskItem({ task, onToggle, onDelete, onUpdate, categorie
 
         <div
           className="task-item-content"
-          onClick={() => { if (!editing) setExpanded(!expanded); }}
+          onClick={() => {
+            if (expanded) {
+              setExpanded(false);
+              cancelEdit();
+            } else {
+              startEdit();
+            }
+          }}
         >
           <div className="task-item-header">
             <span className="task-title">{task.title}</span>
@@ -177,15 +182,15 @@ export default function TaskItem({ task, onToggle, onDelete, onUpdate, categorie
 
         <div className="task-item-actions">
           <button
-            className="task-edit-toggle-btn"
-            onClick={startEdit}
-            title="Edit task"
-          >
-            <Pencil size={14} />
-          </button>
-          <button
             className="task-expand-btn"
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => {
+              if (expanded) {
+                setExpanded(false);
+                cancelEdit();
+              } else {
+                startEdit();
+              }
+            }}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
@@ -248,21 +253,6 @@ export default function TaskItem({ task, onToggle, onDelete, onUpdate, categorie
               <X size={14} />
               Cancel
             </button>
-          </div>
-        </div>
-      )}
-
-      {expanded && !editing && (
-        <div className="task-item-description">
-          {task.description && <p>{task.description}</p>}
-          <div className="task-item-meta">
-            <Clock size={12} />
-            Created{" "}
-            {new Date(task.createdAt).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}
           </div>
         </div>
       )}

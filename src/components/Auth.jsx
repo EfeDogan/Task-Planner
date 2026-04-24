@@ -2,7 +2,7 @@ import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { LogIn, UserPlus, Mail, Lock, Loader2, AlertCircle } from "lucide-react";
 
-export default function Auth() {
+export default function Auth({ onGuest }) {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -116,6 +116,14 @@ export default function Auth() {
               ) : (
                 "Create Account"
               )}
+            </button>
+
+            <div className="auth-divider">
+              <span>or</span>
+            </div>
+
+            <button type="button" className="auth-guest-btn" onClick={onGuest}>
+              Continue as Guest
             </button>
           </form>
         </div>

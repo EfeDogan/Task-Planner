@@ -9,8 +9,10 @@ import FilterBar from "./components/FilterBar";
 import Stats from "./components/Stats";
 import ConnectionStatus from "./components/ConnectionStatus";
 import ThemePicker from "./components/ThemePicker";
-import { LogOut, User, X, ChevronDown } from "lucide-react";
+import { LogOut, LogIn, User, X, ChevronDown } from "lucide-react";
 import "./App.css";
+
+const GUEST_KEY = "task-planner-guest-id";
 
 const DEFAULT_CATEGORIES = [
   { value: "personal", label: "Personal", color: "#6c5ce7" },
@@ -25,8 +27,18 @@ const CATEGORY_PALETTE = [
   "#ffeaa7", "#fab1a0", "#81ecec", "#636e72", "#dfe6e9",
 ];
 
+function getOrCreateGuestId() {
+  let id = localStorage.getItem(GUEST_KEY);
+  if (!id) {
+    id = `guest-${crypto.randomUUID()}`;
+    localStorage.setItem(GUEST_KEY, id);
+  }
+  return id;
+}
+
 let pushTimer = null;
-function schedulePush(userId) {
+function schedulePush(userId, isGuest) {
+  if (isGuest) return;
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(async () => {
     try {
@@ -97,7 +109,7 @@ function App() {
   );
 
   const loadTasks = useCallback(
-    async (userId) => {
+    async (userId, isGuest) => {
       setLoading(true);
 
       try {
@@ -109,7 +121,7 @@ function App() {
 
       setLoading(false);
 
-      if (navigator.onLine) {
+      if (!isGuest && navigator.onLine) {
         try {
           setSyncStatus("syncing");
           const synced = await syncEngine.syncAll(userId);
@@ -145,13 +157,23 @@ function App() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       const u = session?.user ?? null;
-      setUser(u);
       if (u) {
-        loadTasks(u.id);
+        setUser(u);
+        loadTasks(u.id, false);
         loadCategories(u.id);
         loadTheme(u.id);
       } else {
-        setLoading(false);
+        const guestId = localStorage.getItem(GUEST_KEY);
+        if (guestId) {
+          const guestUser = { id: guestId, isGuest: true };
+          setUser(guestUser);
+          loadTasks(guestId, true);
+          loadCategories(guestId);
+          loadTheme(guestId);
+        } else {
+          setUser(null);
+          setLoading(false);
+        }
       }
     });
 
@@ -161,13 +183,16 @@ function App() {
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
-        loadTasks(u.id);
+        loadTasks(u.id, false);
         loadCategories(u.id);
         loadTheme(u.id);
       } else {
+        const guestUser = { id: getOrCreateGuestId(), isGuest: true };
+        setUser(guestUser);
         setTasks([]);
         setCategories(DEFAULT_CATEGORIES);
         setTheme("default");
+        setLoading(false);
       }
     });
 
@@ -187,7 +212,7 @@ function App() {
     const goOnline = () => {
       setSyncStatus("syncing");
       const u = ctxRef.current?.user;
-      if (u) {
+      if (u && !u.isGuest) {
         syncEngine.syncAll(u.id).then((synced) => {
           setTasks(synced.map(mapRow));
           setSyncStatus("idle");
@@ -202,12 +227,12 @@ function App() {
     window.addEventListener("offline", goOffline);
     return () => {
       window.removeEventListener("online", goOnline);
-      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOffline);
     };
   }, [mapRow]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || user.isGuest) return;
     const id = setInterval(() => {
       if (!navigator.onLine) return;
       syncEngine.pullRemote(user.id).then((synced) => {
@@ -231,14 +256,14 @@ function App() {
       due_time: task.dueTime || null,
       completed: false,
       created_at: now,
-      dirty: true,
+      dirty: !user.isGuest,
       deleted: false,
     };
 
     await store.putTask(row);
     setTasks((prev) => [mapRow(row), ...prev]);
 
-    if (navigator.onLine) schedulePush(user.id);
+    schedulePush(user.id, user.isGuest);
   };
 
   const toggleTask = async (id) => {
@@ -254,7 +279,7 @@ function App() {
       prev.map((t) => (t.id === id ? { ...t, completed: newCompleted } : t))
     );
 
-    if (navigator.onLine) schedulePush(user.id);
+    schedulePush(user.id, user.isGuest);
   };
 
   const deleteTask = async (id) => {
@@ -267,7 +292,7 @@ function App() {
     await store.putTask(row);
     setTasks((prev) => prev.filter((t) => t.id !== id));
 
-    if (navigator.onLine) schedulePush(user.id);
+    schedulePush(user.id, user.isGuest);
   };
 
   const updateTask = async (id, updates) => {
@@ -285,7 +310,7 @@ function App() {
       prev.map((t) => (t.id === id ? { ...t, ...updates } : t))
     );
 
-    if (navigator.onLine) schedulePush(user.id);
+    schedulePush(user.id, user.isGuest);
   };
 
   useEffect(() => {
@@ -309,6 +334,12 @@ function App() {
   const signOut = async () => {
     await supabase.auth.signOut();
   };
+
+  const enterGuest = useCallback(() => {
+    const guestUser = { id: getOrCreateGuestId(), isGuest: true };
+    setUser(guestUser);
+    loadTasks(guestUser.id, true);
+  }, [loadTasks]);
 
   const addCategory = useCallback((label) => {
     setCategories((prev) => {
@@ -344,7 +375,9 @@ function App() {
     });
   }, [tasks, filters]);
 
-  if (!user) return <Auth />;
+  if (!user) return <Auth onGuest={enterGuest} />;
+
+  const isGuest = !!user.isGuest;
 
   return (
     <div className="app">
@@ -383,20 +416,29 @@ function App() {
               onClick={(e) => { e.stopPropagation(); setUserMenuOpen((v) => !v); }}
             >
               <div className="user-avatar">
-                {user.email.charAt(0).toUpperCase()}
+                {isGuest ? <User size={14} /> : user.email.charAt(0).toUpperCase()}
               </div>
               <span className="user-name">
-                {user.email.split("@")[0]}
+                {isGuest ? "Guest" : user.email.split("@")[0]}
               </span>
               <ChevronDown size={14} className={`user-chevron ${userMenuOpen ? "open" : ""}`} />
             </button>
             {userMenuOpen && (
               <div className="user-dropdown">
-                <div className="user-dropdown-email">{user.email}</div>
-                <button className="user-dropdown-signout" onClick={() => { setUserMenuOpen(false); signOut(); }}>
-                  <LogOut size={14} />
-                  Sign Out
-                </button>
+                {!isGuest && (
+                  <div className="user-dropdown-email">{user.email}</div>
+                )}
+                {isGuest ? (
+                  <button className="user-dropdown-signout" onClick={() => { setUserMenuOpen(false); setUser(null); }}>
+                    <LogIn size={14} />
+                    Sign In
+                  </button>
+                ) : (
+                  <button className="user-dropdown-signout" onClick={() => { setUserMenuOpen(false); signOut(); }}>
+                    <LogOut size={14} />
+                    Sign Out
+                  </button>
+                )}
               </div>
             )}
             </div>
